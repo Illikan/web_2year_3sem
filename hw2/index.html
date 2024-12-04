@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Конструктор визиток</title>
+    <link rel="stylesheet" href="styles.css">
+
+
+</head>
+
+<body>
+    <div class='business-card-builder'>
+        <div class='editor-inputs'>
+
+            <h3>Конструктор визиток</h3>
+
+            <div class="input-group">
+                <label for="organization" class="input-label">Наименование организации:</label>
+                <br>
+                <input type="text" placeholder="Наименование организации" id="organization" class="text-input">
+            </div>
+
+            <div class="input-group">
+                <label for="name" class="input-label">ФИО:</label>
+                <br>
+                <input type="text" placeholder="ФИО" id="name" class="text-input">
+
+                <div class="selector">
+                    <div class="selector-item">
+                        <input type="radio" id="name-align1" name="name-align" value="left">
+                        <label for="name-align1" class="selector-label"><</label>
+                    </div>
+                    <div class="selector-item">
+                        <input type="radio" class="selector-item" id="name-align2" name="name-align" checked value="center">
+                        <label for="name-align2" class="selector-label">=</label>
+                    </div>
+                    <div class="selector-item">
+                        <input type="radio" class="selector-item" id="name-align3" name="name-align" value="right">
+                        <label for="name-align3" class="selector-label">></label>
+                    </div>
+                </div>
+
+                <div class="selector">
+                    <div class="selector-item">
+                        <input type="radio" id="name-font1" name="name-font" value="24px">
+                        <label for="name-font1" class="selector-label">24px</label>
+                    </div>
+                    <div class="selector-item">
+                        <input type="radio" class="selector-item" id="name-font2" name="name-font" checked value="26px">
+                        <label for="name-font2" class="selector-label">26px</label>
+                    </div>
+                    <div class="selector-item">
+                        <input type="radio" class="selector-item" id="name-font3" name="name-font" value="28px">
+                        <label for="name-font3" class="selector-label">28px</label>
+                    </div>
+                </div>
+                <br>
+
+                <div class="color-selector">
+                    <div style="display: inline-block;">
+                        <input type="radio" class="color-selector-item" id="name-color1" name="name-color" checked value="black">
+                        <label for="name-color1" class="color-selector-label" style="background-color: black"></label>
+                    </div>
+                    <div style="display: inline-block;">
+                        <input type="radio" class="color-selector-item" id="name-color2" name="name-color" value="blue">
+                        <label for="name-color2" class="color-selector-label" style="background-color: blue"></label>
+                    </div>
+                    <div style="display: inline-block;">
+                        <input type="radio" class="color-selector-item" id="name-color3" name="name-color" value="red">
+                        <label for="name-color3" class="color-selector-label" style="background-color: red"></label>
+                    </div>
+                    <div style="display: inline-block;">
+                        <input type="radio" class="color-selector-item" id="name-color4" name="name-color" value="green">
+                        <label for="name-color4" class="color-selector-label" style="background-color: green"></label>
+                    </div>
+                    <div style="display: inline-block;">
+                        <input type="radio" class="color-selector-item" id="name-color5" name="name-color" value="yellow">
+                        <label for="name-color5" class="color-selector-label" style="background-color: yellow"></label>
+                    </div>
+                    <div style="display: inline-block;">
+                        <input type="radio" class="color-selector-item" id="name-color6" name="name-color" value="purple">
+                        <label for="name-color6" class="color-selector-label" style="background-color: magenta"></label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label for="position" class="input-label">Должность:</label>
+                <br>
+                <input type="text" placeholder="должность" id="position" class="text-input">
+
+                <div class="selector">
+                    <div class="selector-item">
+                        <input type="radio" id="position-align1" name="position-align" value="left">
+                        <label for="position-align1" class="selector-label"><</label>
+                    </div>
+                    <div class="selector-item">
+                        <input type="radio" class="selector-item" id="position-align2" name="position-align" checked value="center">
+                        <label for="position-align2" class="selector-label">=</label>
+                    </div>
+                    <div class="selector-item">
+                        <input type="radio" class="selector-item" id="position-align3" name="position-align" value="right">
+                        <label for="position-align3" class="selector-label">></label>
+                    </div>
+                </div>
+
+                <div class="selector">
+                    <div class="selector-item">
+                        <input type="radio" id="position-font1" name="position-font" value="14px">
+                        <label for="position-font1" class="selector-label">14px</label>
+                    </div>
+                    <div class="selector-item">
+                        <input type="radio" class="selector-item" id="position-font2" name="position-font" checked value="16px">
+                        <label for="position-font2" class="selector-label">16px</label>
+                    </div>
+                    <div class="selector-item">
+                        <input type="radio" class="selector-item" id="position-font3" name="position-font" value="18px">
+                        <label for="position-font3" class="selector-label">18px</label>
+                    </div>
+                </div>
+                <br>
+                <div class="color-selector">
+                    <div style="display: inline-block;">
+                        <input type="radio" class="color-selector-item" id="position-color1" name="position-color" checked value="#000">
+                        <label for="position-color1" class="color-selector-label" style="background-color: #000"></label>
+                    </div>
+                    <div style="display: inline-block;">
+                        <input type="radio" class="color-selector-item" id="position-color2" name="position-color" value="#222">
+                        <label for="position-color2" class="color-selector-label" style="background-color: #222"></label>
+                    </div>
+                    <div style="display: inline-block;">
+                        <input type="radio" class="color-selector-item" id="position-color3" name="position-color" value="#444">
+                        <label for="position-color3" class="color-selector-label" style="background-color: #444"></label>
+                    </div>
+                    <div style="display: inline-block;">
+                        <input type="radio" class="color-selector-item" id="position-color4" name="position-color" value="#666">
+                        <label for="position-color4" class="color-selector-label" style="background-color: #666"></label>
+                    </div>
+                    <div style="display: inline-block;">
+                        <input type="radio" class="color-selector-item" id="position-color5" name="position-color" value="#888">
+                        <label for="position-color5" class="color-selector-label" style="background-color: #888"></label>
+                    </div>
+                    <div style="display: inline-block;">
+                        <input type="radio" class="color-selector-item" id="position-color6" name="position-color" value="#aaa">
+                        <label for="position-color6" class="color-selector-label" style="background-color: #aaa"></label>
+                    </div>
+                </div>
+            </div>
+            <div class="input-group">
+                <label for="phone" class="input-label">Телефон: </label>
+                <br>
+                <input type="text" placeholder="+79000000000" id="phone" style="display: block; " class="text-input ">
+                <input type="text " placeholder="+79000000000" id="phone2" class="text-input" style='width: 13em; margin: 0.5em 0.5em 0 0;display: None;'><input type="button" class="phone-button" value="-" id="phone-button2" style="display: None;" onclick="del_button()">
+                <br style="display: block;">
+                <input type="button" class="phone-button" value="+" id="phone-button" onclick="add_number()"><label for="phone-button" class="input-label" id="phone-button-label"> Добавить ещё номер</label>
+            </div>
+
+            <div class="input-group">
+                <label for="email" class="input-label">E-mail: </label>
+                <br>
+                <input type="text" placeholder="whoami@mail.ru" id="email" class="text-input">
+                <input type="checkbox" id="email-opacity"><label for="email" for="email-view" class="checkbox-label">Отобразить</label>
+            </div>
+
+            <div class="input-group">
+                <label for="address" class="input-label">Адрес: </label>
+                <br>
+                <input type="text" placeholder="Адрес" id="address" class="text-input">
+                <input type="checkbox" id="address-opacity"><label for="address" for="address-view" class="checkbox-label">Отобразить </label>
+            </div>
+
+            <input type="button" id="submit-button" class="submit-button" value="Применить" onclick="change_view()">
+        </div>
+        <div class='view-container'>
+            <div class='view'>
+                <p id="organization-view"> </p>
+                <h2 id="name-view"> </h2>
+                <p id="position-view"> </p>
+                <div class="views-container">
+                    <p id="email-view"> </p>
+                    <p id="number-view"> </p>
+                    <p id="number2-view" style="display: None"> </p>
+                    <p id="address-view"> </p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+
+</body>
+
+</html>

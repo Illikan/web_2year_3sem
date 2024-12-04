@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Список задач</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="container">
+        <div class="tasks-list">
+            <h2>Список задач <button id="createTaskBtn" class="add-task-btn">Добавить</button></h2>
+            <ul id="taskList"></ul>
+        </div>
+        <div class="task-card hidden" id="taskCard">
+            <h3 class="small-title">Карточка задачи</h3>
+            <span class="task-label">Задача</span> <br>
+            <input type="text" id="taskDescription" placeholder="Описание задачи"> <br>
+            <label><input type="checkbox" id="highPriority">Высокий приоритет</label>
+            <div class="buttons">
+                <button id="saveTaskBtn" class="save-btn">Сохранить</button>
+                <button id="cancelTaskBtn" class="cancel-btn">Отменить</button>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+
+</html>
