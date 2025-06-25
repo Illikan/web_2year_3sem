@@ -1,0 +1,11 @@
+(sip-data-classification-py3.13) (base) illikan@illikan-VirtualBox:~/Coding/Vesnin/SIP_Data_classification$ poetry run python app.py
+Traceback (most recent call last):
+  File "/home/illikan/Coding/Vesnin/SIP_Data_classification/app.py", line 6, in <module>
+    import data_processing
+  File "/home/illikan/Coding/Vesnin/SIP_Data_classification/data_processing.py", line 15, in <module>
+    import s2geometry as s2
+  File "/home/illikan/.cache/pypoetry/virtualenvs/sip-data-classification-dJgYZQSF-py3.13/lib/python3.13/site-packages/s2geometry/__init__.py", line 1, in <module>
+    from .pywraps2 import *
+  File "/home/illikan/.cache/pypoetry/virtualenvs/sip-data-classification-dJgYZQSF-py3.13/lib/python3.13/site-packages/s2geometry/pywraps2.py", line 10, in <module>
+    from . import _pywraps2
+ImportError: /home/illikan/miniconda3/bin/../lib/libstdc++.so.6: version `GLIBCXX_3.4.32' not found (required by /home/illikan/.cache/pypoetry/virtualenvs/sip-data-classification-dJgYZQSF-py3.13/lib/python3.13/site-packages/s2geometry/_pywraps2.so)
