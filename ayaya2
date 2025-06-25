@@ -13,3 +13,5 @@ Traceback (most recent call last):
 ImportError: /home/illikan/miniconda3/bin/../lib/libstdc++.so.6: version `GLIBCXX_3.4.32' not found (required by /home/illikan/.cache/pypoetry/virtualenvs/sip-data-classification-dJgYZQSF-py3.13/lib/python3.13/site-packages/s2geometry/_pywraps2.so)
 
 ldd /home/illikan/.cache/pypoetry/virtualenvs/sip-data-classification-dJgYZQSF-py3.13/lib/python3.13/site-packages/s2geometry/_pywraps2.so
+
+ libstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6 (0x0000765ad1400000)
