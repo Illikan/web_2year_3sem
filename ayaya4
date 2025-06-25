@@ -100,3 +100,74 @@ def get_main_map_data(study_date: datetime):
 
     print(f"\nОбработка завершена. Найдено валидных сегментов: {len(all_valid_segments)}")
     return all_valid_segments, study_date
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def get_series_data(
+    study_date: datetime, 
+    station_id: str, 
+    satellite_id: str,
+    product: DataProducts = DataProducts.roti
+):
+    """
+    ОПТИМИЗИРОВАННАЯ ВЕРСЯ.
+    Читает из HDF5 файла данные ТОЛЬКО для одной запрошенной траектории.
+    """
+    print(f"Ленивый запрос данных для графика: {station_id}-{satellite_id}, продукт: {product.name}")
+    try:
+        # Получаем путь к файлу (он будет взят из кэша, если уже скачан)
+        h5_file = load_h5_data(study_date)
+        if not h5_file:
+            raise FileNotFoundError("HDF5 файл для этой даты не найден.")
+            
+        # Открываем файл для чтения
+        with h5py.File(h5_file, 'r') as f:
+            # Проверяем наличие нужных "папок" (групп) в файле
+            if station_id not in f:
+                raise KeyError(f"Станция {station_id} не найдена в H5 файле.")
+            if satellite_id not in f[station_id]:
+                raise KeyError(f"Спутник {satellite_id} не найден для станции {station_id}.")
+            
+            sat_group = f[station_id][satellite_id]
+            
+            if product.value.hdf_name not in sat_group:
+                raise KeyError(f"Продукт {product.name} не найден для траектории.")
+
+            # --- ВОТ ОНА, МАГИЯ! ---
+            # Читаем ТОЛЬКО нужные нам датасеты
+            timestamps = sat_group[DataProducts.timestamp.value.hdf_name][:]
+            values = sat_group[product.value.hdf_name][:]
+
+        # Обработка и возврат данных
+        times = [datetime.fromtimestamp(t, tz=tz.gettz("UTC")) for t in timestamps]
+        
+        return {
+            'time': [t.isoformat() for t in times],
+            'value': values.tolist(),
+            'product_name': product.value.long_name,
+            'product_units': product.value.color_limits.units
+        }
+
+    except (KeyError, FileNotFoundError) as e:
+        print(f"  -> Ошибка: {e}")
+        return None
+    except Exception as e:
+        print(f"Произошла непредвиденная ошибка при чтении H5 файла: {e}")
+        return None
