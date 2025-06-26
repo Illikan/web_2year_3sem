@@ -1,0 +1,34 @@
+CACHE_DIR = Path("geometry_cache")
+CACHE_DIR.mkdir(exist_ok=True) # Создаем папку для кэша, если ее нет
+
+def cache_segment_data(segment_id: str, segment_data: dict):
+    """Сохраняет данные сегмента в отдельный JSON-файл."""
+    # Используем безопасное имя файла
+    safe_filename = segment_id.replace('/', '_').replace('\\', '_') + ".json"
+    file_path = CACHE_DIR / safe_filename
+    try:
+        with open(file_path, 'w') as f:
+            json.dump(segment_data, f)
+    except Exception as e:
+        print(f"Ошибка при сохранении кэша для {segment_id}: {e}")
+
+def get_segment_from_cache(segment_id: str) -> dict | None:
+    """Читает данные сегмента из JSON-файла."""
+    safe_filename = segment_id.replace('/', '_').replace('\\', '_') + ".json"
+    file_path = CACHE_DIR / safe_filename
+    if file_path.exists():
+        try:
+            with open(file_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Ошибка при чтении кэша для {segment_id}: {e}")
+            return None
+    else:
+        # Это важный случай: если файла нет (после перезапуска), мы должны сообщить об этом.
+        return None
+
+def clear_geometry_cache():
+    """Очищает папку с файлами кэша."""
+    print("Очистка файлового кэша геометрии...")
+    for item in CACHE_DIR.iterdir():
+        item.unlink() # Удаляем файл
