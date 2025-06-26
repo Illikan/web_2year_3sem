@@ -1,136 +1,338 @@
-def get_filtered_stations(study_date: datetime):
-    """
-    БЫСТРАЯ функция для инициализации сессии.
-    1. Получает список всех станций из H5 файла.
-    2. Асинхронно загружает их координаты.
-    3. Фильтрует станции по близости к аномалии.
-    Возвращает отфильтрованный список словарей с данными о станциях.
-    """
-    print(f"Инициализация сессии для {study_date.date()}. Фильтрация станций...")
-    DISTANCE_LIMIT_KM = 3000.0 
+import dash
+from dash import dcc, html, Input, Output, State, no_update
+import dash_bootstrap_components as dbc
+import plotly.graph_objects as go
+from datetime import datetime
+import data_processing
+from data_processing import get_segment_from_cache 
+import json
+from pathlib import Path
 
-    try:
-        h5_file_path = load_h5_data(study_date)
-        if not h5_file_path:
-            raise FileNotFoundError("Не удалось загрузить H5 файл для получения списка станций.")
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], prevent_initial_callbacks="initial_duplicate")
+
+modal = dbc.Modal(
+    [
+        dbc.ModalHeader("Выберите параметры для анализа"),
+        dbc.ModalBody([
+            dbc.Label("Дата исследования:"),
+            dcc.DatePickerSingle(
+                id='date-picker',
+                min_date_allowed=datetime(2025, 5, 1),
+                max_date_allowed=datetime.now(),
+                display_format='YYYY-MM-DD',
+                className="w-100"
+            ),
+            dbc.Label("Структура данных:", className="mt-3"),
+            dcc.Dropdown(
+                id='structure-dropdown',
+                options=[{'label': 'Структура А', 'value': 'A'}],
+                value='A'
+            ),
+            dbc.Alert("Пожалуйста, выберите дату.", color="warning", id="date-alert", is_open=False, duration=3000),
+        ]),
+        dbc.ModalFooter(
+            dbc.Button("Загрузить и отобразить", id="submit-modal-button", color="primary")
+        ),
+    ],
+    id="settings-modal", is_open=True, backdrop="static", keyboard=False,
+)
+
+app.layout = dbc.Container(
+    [
+        dcc.Store(id='all-segments-store', storage_type='session'),
+        dcc.Store(id='current-segment-index-store', storage_type='session'),
+        dcc.Store(id='study-date-store', storage_type='session'),
         
-        with h5py.File(h5_file_path, 'r') as f:
-            all_stations_in_h5 = list(f.keys())
+        modal,
+
+        dcc.Loading(
+            id="loading-container",
+            children=html.Div([
+                dbc.Row([
+                    dbc.Col(dcc.Graph(id='globe-graph'), width=7),
+                    dbc.Col(dcc.Graph(id='series-graph'), width=5), 
+                ]),
+                dbc.Row(
+                    dbc.Col(
+                        html.Div([
+                            dbc.Button("Да", id="yes-button", color="success", className="me-3"),
+                            dbc.Button("Нет", id="no-button", color="danger"),
+                        ], className="d-flex justify-content-center mt-4"),
+                        width=12
+                    )
+                )
+            ], id="main-content", style={'display': 'none'}) 
+        )
+    ],
+    fluid=True,
+    id='app-layout'
+)
+
+@app.callback(
+    Output('all-segments-store', 'data'),
+    Output('current-segment-index-store', 'data'),
+    Output('study-date-store', 'data'),
+    Input('submit-modal-button', 'n_clicks'),
+    State('date-picker', 'date'),
+    prevent_initial_call=True
+)
+def run_processing_and_init(n_clicks, selected_date):
+    # Эта функция теперь ОЧЕНЬ простая. Она только считает и сохраняет.
+    if not selected_date:
+        return no_update, no_update, no_update
         
-        print(f"Найдено станций в H5: {len(all_stations_in_h5)}. Загружаю координаты...")
-        all_stations_data = asyncio.run(get_all_site_data_concurrently(all_stations_in_h5))
-        
-        anomaly_poly_coords = generate_equatorial_poly()
-        anomaly_s2_loop = s2.S2Loop([
-            s2.S2LatLng.FromDegrees(lat, lon).ToPoint() for lon, lat in anomaly_poly_coords
-        ])
-        anomaly_polygon_s2 = s2.S2Polygon(anomaly_s2_loop)
-
-        relevant_stations = []
-        for site_data in all_stations_data:
-            if is_site_near_anomaly_s2(
-                site_latlon=(site_data['lat'], site_data['lon']),
-                anomaly_polygon_s2=anomaly_polygon_s2,
-                max_distance_km=DISTANCE_LIMIT_KM
-            ):
-                relevant_stations.append(site_data)
-        
-        print(f"После фильтрации осталось {len(relevant_stations)} станций.")
-        return relevant_stations
-
-    except Exception as e:
-        print(f"Критическая ошибка при фильтрации станций: {e}")
-        return []
-
-
-# ==============================================================================
-# НОВАЯ ФУНКЦИЯ №2: find_next_valid_segment
-# ==============================================================================
-def find_next_valid_segment(study_date: datetime, station_list: list, current_station_idx: int, current_sat_idx: int):
-    """
-    "Ленивая" поисковая функция. Ищет следующий валидный сегмент,
-    начиная с указанной позиции в списке станций и спутников.
-    Возвращает (метаданные_сегмента, новый_индекс_станции, новый_индекс_спутника) или (None, None, None).
-    """
-    print(f"\nПоиск следующего сегмента, начиная со станции #{current_station_idx}, спутника #{current_sat_idx}...")
+    study_date_dt = datetime.strptime(selected_date.split('T')[0], '%Y-%m-%d')
+    all_segments_metadata, study_date_obj = data_processing.get_main_map_data(study_date_dt)
     
-    try:
-        nav_file = load_nav_file(study_date)
-        if not nav_file: raise FileNotFoundError("Не удалось загрузить NAV файл для поиска сегмента.")
-        h5_file_path = load_h5_data(study_date)
-        if not h5_file_path: raise FileNotFoundError("Не удалось загрузить H5 файл для поиска сегмента.")
-        
-        end_time = study_date + timedelta(days=1, seconds=-30)
-        anomaly_poly_coords = generate_equatorial_poly()
-        anomaly_s2_loop = s2.S2Loop([
-            s2.S2LatLng.FromDegrees(lat, lon).ToPoint() for lon, lat in anomaly_poly_coords
-        ])
-        anomaly_polygon_s2 = s2.S2Polygon(anomaly_s2_loop)
-    except Exception as e:
-        print(f"Ошибка при подготовке к поиску сегмента: {e}")
-        return None, None, None
+    data_to_store = {'events_metadata': all_segments_metadata}
+    index_to_store = {'index': 0}
+    date_to_store = {'date': study_date_obj.isoformat()}
+    
+    return data_to_store, index_to_store, date_to_store
 
-    # Итерируемся по станциям, начиная с текущей
-    for i in range(current_station_idx, len(station_list)):
-        site_data = station_list[i]
-        
-        with h5py.File(h5_file_path, 'r') as f:
-            available_sats = list(f.get(site_data['id'], {}).keys())
-        
-        # Если мы на новой станции, начинаем с первого спутника. Иначе - продолжаем.
-        start_sat_idx = current_sat_idx if i == current_station_idx else 0
-        
-        print(f"--- Проверка станции {site_data['id'].upper()} (спутники с #{start_sat_idx}) ---")
+# --- КОЛБЭК 2: УМНОЕ УПРАВЛЕНИЕ ВИДИМОСТЬЮ И ВОССТАНОВЛЕНИЕ КЭША ---
+@app.callback(
+    Output('settings-modal', 'is_open'),
+    Output('main-content', 'style'),
+    # Этот Output будет триггерить пересчет, если нужно
+    Output('all-segments-store', 'data', allow_duplicate=True), 
+    Input('app-layout', 'children'), # Триггер на загрузку
+    State('all-segments-store', 'data'),
+    State('study-date-store', 'data')
+)
+def manage_initial_view(_, stored_data, date_store_data):
+    # Если нет данных о дате или сегментах, значит, это точно новая сессия.
+    if not stored_data or not date_store_data:
+        return True, {'display': 'none'}, no_update
 
-        # Итерируемся по спутникам этой станции
-        for j in range(start_sat_idx, len(available_sats)):
-            sat_id = available_sats[j]
-            
-            # --- ЗАПУСКАЕМ ТЯЖЕЛЫЕ ВЫЧИСЛЕНИЯ ТОЛЬКО ДЛЯ ОДНОЙ ПАРЫ ---
-            all_sats_xyz, times = get_sat_xyz(nav_file, study_date, end_time, sats=[sat_id])
-            if not all_sats_xyz: continue
-            
-            sats_elaz = get_elaz_for_site(site_data['xyz'], all_sats_xyz)
-            if sat_id not in sats_elaz: continue
-            
-            elaz_data = sats_elaz[sat_id]
-            visible_mask = elaz_data[:, 0] > 0
-            if not np.any(visible_mask): continue
-            
-            sips_coords = calculate_sips(np.radians(site_data['lat']), np.radians(site_data['lon']), elaz_data[visible_mask, 0], elaz_data[visible_mask, 1])
-            points_with_datetime = [{'lat': sip[0], 'lon': sip[1], 'time': time} for sip, time in zip(sips_coords, np.array(times)[visible_mask])]
-            
-            time_based_segments = split_trajectory_by_gaps(points_with_datetime)
+    events_metadata = stored_data.get('events_metadata', [])
+    study_date_str = date_store_data.get('date')
 
-            part_number = 1
-            for segment in time_based_segments:
-                is_valid, intersections = is_segment_valid(segment, anomaly_polygon_s2)
-                if is_valid:
-                    # НАШЛИ!
-                    print(f"    ✅ Найден валидный сегмент: {site_data['id']}-{sat_id} (часть {part_number})")
-                    segment_id = f"{site_data['id']}-{sat_id}-{part_number}"
+    # Если есть метаданные, но они пустые (после завершения разметки) -> новая сессия
+    if not events_metadata:
+        return True, {'display': 'none'}, no_update
+
+    # --- КЛЮЧЕВАЯ ЛОГИКА ---
+    # Проверяем, жив ли наш серверный кэш, взяв ID первого сегмента.
+    first_segment_id = events_metadata[0].get('id')
+    if data_processing.get_segment_from_cache(first_segment_id) is None:
+        # Если кэш пуст (сервер перезапустился)...
+        print("!!! СЕРВЕРНЫЙ КЭШ ПУСТ. ВОССТАНАВЛИВАЮ ГЕОМЕТРИЮ... !!!")
+        
+        # ...мы должны ПЕРЕСЧИТАТЬ ВСЁ ЗАНОВО, чтобы наполнить кэш.
+        study_date_dt = datetime.fromisoformat(study_date_str)
+        # Эта функция заново наполнит файловый кэш.
+        recalculated_metadata, _ = data_processing.get_main_map_data(study_date_dt)
+        
+        # И мы перезаписываем данные в dcc.Store, чтобы обновить интерфейс
+        # Это также закроет окно и покажет контент.
+        return False, {'display': 'block'}, {'events_metadata': recalculated_metadata}
+    else:
+        # Если кэш в порядке (простое обновление F5 без перезапуска сервера)...
+        print("Обнаружена существующая сессия с живым кэшем.")
+        # ...то мы просто скрываем модальное окно и показываем контент.
+        return False, {'display': 'block'}, no_update
+
+@app.callback(
+    Output('globe-graph', 'figure'),
+    Output('series-graph', 'figure'),
+    Input('all-segments-store', 'data'),
+    Input('current-segment-index-store', 'data'),
+    State('study-date-store', 'data')
+)
+
+def update_graphs(stored_data, current_index_data, date_store_data):
+    map_fig = go.Figure()
+    series_fig = go.Figure()
+    map_title = "Карта геофизических эффектов"
+    series_title = "Данные временного ряда"
+    
+    anomaly_polygon_coords = data_processing.generate_equatorial_poly()
+    poly_lons, poly_lats = zip(*anomaly_polygon_coords)
+    map_fig.add_trace(go.Scattergeo(
+        lon=poly_lons, lat=poly_lats, mode='lines', fill='toself', 
+        fillcolor='rgba(255, 0, 0, 0.3)', name='Зона аномалии', showlegend=False
+    ))
+    
+    if not stored_data or not current_index_data or not date_store_data:
+        # Если данных нет (первый запуск), ничего не обновляем
+        return no_update, no_update
+    
+    events_metadata = stored_data.get('events_metadata', [])
+    current_index = current_index_data.get('index', 0)
+    study_date_str = date_store_data.get('date')
+    study_date = datetime.fromisoformat(study_date_str) if study_date_str else None
+
+    if not events_metadata:
+        map_title = "Не найдено подходящих сегментов"
+    elif current_index >= len(events_metadata):
+        map_title = "Маркировка завершена!"
+        series_fig.update_layout(title="Нет данных для отображения")
+    else:
+        event_metadata = events_metadata[current_index]
+        event_id = event_metadata['id']
+        station_id = event_metadata['station_id']
+        satellite_id = event_metadata['satellite_id']
+        map_title = f"Сегмент на проверке: {event_id}"
+
+        segment_to_display = get_segment_from_cache(event_id)
+        if not segment_to_display:
+            map_title = f"Ошибка: данные для сегмента {event_id} не найдены в кэше."
+            # Возвращаем карту с ошибкой и пустой график
+            map_fig.update_layout(title=map_title, geo=dict(projection_type='orthographic'))
+            series_fig.update_layout(title="Ошибка загрузки данных")
+            return map_fig, series_fig
+        
+        # Отображение станции
+        site = data_processing.get_site_data_by_id(station_id)
+        if site:
+            map_fig.add_trace(go.Scattergeo(
+                lon=[site['lon']], lat=[site['lat']], text=site['id'].upper(), mode='markers+text', 
+                marker=dict(color='blue', size=10, symbol='triangle-up'), textposition='top right', 
+                name=f"Станция {site['id'].upper()}"
+            ))
+
+        # Отображение траектории
+        points = segment_to_display.get('points', [])
+        lats = [p['lat'] for p in points]; lons = [p['lon'] for p in points]
+        map_fig.add_trace(go.Scattergeo(
+            lon=lons, lat=lats, mode='lines', 
+            line=dict(width=3, color='purple'), name=segment_to_display['id']
+        ))
+        
+        intersections = segment_to_display.get('intersections', [])
+        if intersections:
+            int_lats = [p['lat'] for p in intersections]
+            int_lons = [p['lon'] for p in intersections]
+            
+            hover_texts = []
+            for i, p in enumerate(intersections):
+                event_type = "Вход" if i % 2 == 0 else "Выход"
+                event_num = i // 2 + 1
+                time_obj = datetime.fromisoformat(p['time'])
+                time_str = time_obj.strftime('%H:%M:%S')
+                hover_texts.append(f"{event_type} {event_num}<br>Время: {time_str}")
+
+            map_fig.add_trace(go.Scattergeo(
+                lon=int_lons,
+                lat=int_lats,
+                mode='markers',
+                marker=dict(
+                    color='lime',
+                    size=8,
+                    symbol='circle',
+                    line=dict(width=1, color='black')
+                ),
+                hoverinfo='text',
+                text=hover_texts,
+                name='Точки пересечения'
+            ))
+
+        series_data = data_processing.get_series_data_for_trajectory(
+            study_date=study_date,
+            station_id=station_id, # Берем из метаданных
+            satellite_id=satellite_id, # Берем из метаданных
+            product=data_processing.DataProducts.roti
+        )
+        if series_data:
+            series_title = f"ROTI для {segment_to_display['id']}"
+            times_dt = [datetime.fromisoformat(t) for t in series_data['time']]
+            
+            series_fig.add_trace(go.Scatter(
+                x=times_dt, y=series_data['value'], mode='lines+markers',
+                name=series_data['product_name']
+            ))
+            series_fig.update_layout(yaxis_title=f"{series_data['product_name']}, {series_data['product_units']}")
+            
+            if intersections:
+                for i, intersection in enumerate(intersections):
+                    is_entry = (i % 2 == 0)
+                    line_color = "green" if is_entry else "red"
+                    event_number = i // 2 + 1
+                    annotation_text = f"Вход {event_number}" if is_entry else f"Выход {event_number}"
+                    intersection_time_dt = datetime.fromisoformat(intersection['time'])
+                    intersection_timestamp = intersection_time_dt.timestamp() * 1000
                     
-                    full_segment_data = {
-                        'id': segment_id,
-                        'points': [{**p, 'time': p['time'].isoformat()} for p in segment],
-                        'intersections': [{**p, 'time': p['time'].isoformat()} for p in intersections]
-                    }
-                    cache_segment_data(segment_id, full_segment_data)
-                    
-                    event_metadata = {
-                        'id': segment_id,
-                        'station_id': site_data['id'],
-                        'satellite_id': sat_id,
-                        'entry_time': intersections[0]['time'].isoformat(),
-                        'exit_time': intersections[-1]['time'].isoformat(),
-                        'has_effect': False 
-                    }
-                    
-                    # Возвращаем метаданные и НОВЫЕ индексы для СЛЕДУЮЩЕГО поиска
-                    return event_metadata, i, j + 1
-                
-                part_number += 1
+                    series_fig.add_vline(
+                        x=intersection_timestamp, line_width=2, line_dash="dash", line_color=line_color,
+                        annotation_text=annotation_text, annotation_position="top left" if is_entry else "top right"
+                    )
 
-    # Если мы прошли все циклы и ничего не нашли, значит, разметка закончена.
-    print("Поиск завершен. Больше валидных сегментов не найдено.")
-    return None, None, None
+                series_fig.update_xaxes(
+                    title="Время (UTC)", type="date", tickformat="%Y-%m-%d\n%H:%M:%S"
+                )
+        else:
+            series_title = f"Нет данных для {segment_to_display['id']}"
+
+    map_fig.update_layout(
+        title=map_title, width=None, height=600,
+        geo=dict(projection_type='orthographic', lonaxis_showgrid=True, lataxis_showgrid=True)
+    )
+    series_fig.update_layout(
+        title=series_title, xaxis_title="Время (UTC)", width=None, height=600
+    )
+    
+    return map_fig, series_fig
+
+@app.callback(
+    Output('current-segment-index-store', 'data', allow_duplicate=True),
+    Output('all-segments-store', 'data', allow_duplicate=True),
+    [Input('yes-button', 'n_clicks'),
+     Input('no-button', 'n_clicks')],
+    [State('current-segment-index-store', 'data'),
+     State('all-segments-store', 'data')],
+    prevent_initial_call=True
+)
+def process_annotation(yes_clicks, no_clicks, current_index_data, all_segments_data):
+    if not any([yes_clicks, no_clicks]):
+        return no_update
+    if not current_index_data:
+        current_index = 0
+    else:
+        current_index = current_index_data.get('index', 0)
+    all_segments = all_segments_data.get('events_metadata', [])
+    ctx = dash.callback_context
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    is_effect = (button_id == 'yes-button')
+    
+    if all_segments and current_index < len(all_segments):
+
+        event_metadata = all_segments[current_index]
+        event_id = event_metadata['id']
+
+        segment_to_save = get_segment_from_cache(event_id)
+        if not segment_to_save:
+
+            return {'index': current_index+1}
+        
+        
+        output_dir = Path("annotations")
+        output_dir.mkdir(exist_ok=True)
+        
+        date_str = datetime.fromisoformat(segment_to_save['points'][0]['time']).strftime('%Y-%m-%d')
+        file_path = output_dir / f"annotations_{date_str}.json"
+        
+        event_metadata['has_effect'] = is_effect
+        with open(file_path, 'a') as f:
+            json_line = json.dumps(event_metadata)
+            f.write(json_line + '\n')
+            
+        print(f"Сегмент {segment_to_save['id']} сохранен в {file_path} с is_effect={is_effect}")
+    
+    next_index = current_index + 1
+    
+    # Если мы только что обработали ПОСЛЕДНИЙ элемент...
+    if next_index >= len(all_segments):
+        print("Маркировка завершена. Очищаю данные сессии.")
+        # ... то мы возвращаем пустые данные для хранилища сегментов.
+        # И сбрасываем индекс.
+        return {'index': 0}, {'events_metadata': []}
+    else:
+        # Если это не последний элемент, просто обновляем индекс.
+        return {'index': next_index}, no_update
+
+
+
+if __name__ == '__main__':
+    app.run(debug=True)
