@@ -1,36 +1,125 @@
+# data_processing.py
+
+# ... (импорты) ...
+
+# --- НОВЫЙ КЭШ ДЛЯ ГЕОМЕТРИИ ---
+# Этот словарь будет жить, пока работает сервер Dash
+GEOMETRY_CACHE = {}
+
+def cache_segment_data(segment_id, segment_data):
+    """Сохраняет данные сегмента в кэш."""
+    GEOMETRY_CACHE[segment_id] = segment_data
+
+def get_segment_from_cache(segment_id):
+    """Возвращает данные сегмента из кэша."""
+    return GEOMETRY_CACHE.get(segment_id)
+
+def clear_geometry_cache():
+    """Очищает кэш (полезно вызывать перед каждым новым анализом)."""
+    GEOMETRY_CACHE.clear()
+
+# data_processing.py
+
 def get_main_map_data(study_date: datetime):
     # ...
-    # --- Шаг 2: Чтение структуры H5 ---
-    try:
-        h5_file_path = load_h5_data(study_date)
-        if not h5_file_path: raise FileNotFoundError(...)
-        with h5py.File(h5_file_path, 'r') as f:
-            all_stations_in_h5 = list(f.keys())
-    except Exception as e:
-        print(f"Ошибка на этапе чтения H5: {e}")
-        return [], study_date
-
-    # --- ШАГ 2.5: АСИНХРОННАЯ ЗАГРУЗКА ДАННЫХ О СТАНЦИЯХ (НОВЫЙ БЛОК) ---
-    print(f"Найдено станций в H5: {len(all_stations_in_h5)}. Запускаю параллельную загрузку их координат...")
-    # Запускаем асинхронную функцию и ждем ее выполнения
-    all_stations_data = asyncio.run(get_all_site_data_concurrently(all_stations_in_h5))
-    print(f"Координаты загружены для {len(all_stations_data)} станций. Фильтрую по расстоянию...")
-
-    # --- Шаг 3: Фильтрация и подготовка к гео-расчетам ---
-    relevant_station_sat_pairs = []
-    poly_center_latlon = (0, 0)
+    # Перед началом нового анализа очищаем старый кэш
+    clear_geometry_cache()
     
-    # Теперь мы итерируемся по уже загруженным данным, это происходит мгновенно
-    for site_data in all_stations_data:
-        if is_site_near_polygon(...):
-             # Чтобы получить список спутников, нам все равно придется открыть H5 еще раз
-             # Но это очень быстрая операция
-             with h5py.File(h5_file_path, 'r') as f:
-                 available_sats = list(f.get(site_data['id'], {}).keys())
+    all_events_metadata = [] # Будем хранить только метаданные
+    
+    # ... (весь цикл обработки до сохранения результата) ...
 
-             relevant_station_sat_pairs.append({
-                 'site_data': site_data,
-                 'sats': available_sats
-             })
-             
-    # ... (остальная часть функции остается почти без изменений) ...
+    # внутри цикла, после проверки if is_valid:
+    if is_valid:
+        segment_id = f"{site_data['id']}-{sat_id}-{part_number}"
+        
+        # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ---
+        # 1. Сохраняем "тяжелые" данные в кэш на сервере
+        full_segment_data = {
+            'points': [{**p, 'time': p['time'].isoformat()} for p in segment],
+            'intersections': [{**p, 'time': p['time'].isoformat()} for p in intersections]
+        }
+        cache_segment_data(segment_id, full_segment_data)
+        
+        # 2. Готовим "легкие" метаданные для передачи на frontend
+        event_metadata = {
+            'id': segment_id,
+            'station_id': site_data['id'],
+            'satellite_id': sat_id,
+            # ВМЕСТО ПОЛНОГО СПИСКА ТОЧЕК - НИЧЕГО!
+            # Вся геометрия теперь в кэше.
+            'entry_time': intersections[0]['time'].isoformat(),
+            'exit_time': intersections[-1]['time'].isoformat(),
+            'has_effect': False 
+        }
+        all_events_metadata.append(event_metadata)
+        
+        part_number += 1
+    
+    # ... (конец циклов) ...
+    
+    print(f"\nОбработка завершена. Найдено событий: {len(all_events_metadata)}")
+    
+    # Возвращаем легкий список метаданных
+    return all_events_metadata, study_date
+
+
+# app.py
+
+# Импортируем новую функцию
+from data_processing import get_segment_from_cache 
+
+# ... (остальной код приложения) ...
+
+@app.callback(
+    Output('globe-graph', 'figure'),
+    # ...
+)
+def update_graphs_from_stored_data(stored_data):
+    # ...
+    # stored_data теперь содержит 'events_metadata'
+    events_metadata = stored_data.get('events_metadata', [])
+    
+    # ... (код для отрисовки полигона и станций) ...
+
+    if events_metadata:
+        for event in events_metadata:
+            event_id = event['id']
+            
+            # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ---
+            # Получаем полные данные из серверного кэша по ID
+            segment_data = get_segment_from_cache(event_id)
+            
+            if not segment_data:
+                print(f"Внимание: не найдены данные в кэше для ID {event_id}")
+                continue
+
+            # Теперь у нас есть точки, и мы можем рисовать
+            points = segment_data['points']
+            lats = [p['lat'] for p in points]
+            lons = [p['lon'] for p in points]
+            
+            map_fig.add_trace(go.Scattergeo(
+                lon=lons,
+                lat=lats,
+                mode='lines',
+                line=dict(width=2, color='orange'),
+                name=event_id
+                # ... и т.д.
+            ))
+            
+            # Также можно нарисовать точки входа/выхода
+            intersections = segment_data.get('intersections', [])
+            if intersections:
+                entry = intersections[0]
+                exit_p = intersections[-1]
+                map_fig.add_trace(go.Scattergeo(
+                    lon=[entry['lon'], exit_p['lon']],
+                    lat=[entry['lat'], exit_p['lat']],
+                    mode='markers',
+                    marker=dict(size=8, color='red', symbol='cross'),
+                    name=f"{event_id} crossings"
+                ))
+
+    # ...
+    return map_fig, series_fig
