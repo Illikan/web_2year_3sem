@@ -1,34 +1,56 @@
-CACHE_DIR = Path("geometry_cache")
-CACHE_DIR.mkdir(exist_ok=True) # Создаем папку для кэша, если ее нет
+# app.py
 
-def cache_segment_data(segment_id: str, segment_data: dict):
-    """Сохраняет данные сегмента в отдельный JSON-файл."""
-    # Используем безопасное имя файла
-    safe_filename = segment_id.replace('/', '_').replace('\\', '_') + ".json"
-    file_path = CACHE_DIR / safe_filename
-    try:
-        with open(file_path, 'w') as f:
-            json.dump(segment_data, f)
-    except Exception as e:
-        print(f"Ошибка при сохранении кэша для {segment_id}: {e}")
+# ... (импорты и layout) ...
 
-def get_segment_from_cache(segment_id: str) -> dict | None:
-    """Читает данные сегмента из JSON-файла."""
-    safe_filename = segment_id.replace('/', '_').replace('\\', '_') + ".json"
-    file_path = CACHE_DIR / safe_filename
-    if file_path.exists():
-        try:
-            with open(file_path, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"Ошибка при чтении кэша для {segment_id}: {e}")
-            return None
+# --- НОВЫЙ КОЛБЭК ДЛЯ УПРАВЛЕНИЯ МОДАЛЬНЫМ ОКНОМ ---
+@app.callback(
+    Output('settings-modal', 'is_open'),
+    Output('main-content', 'style'),
+    Input('app-layout', 'children'), # <-- Триггер, который срабатывает один раз при загрузке страницы
+    State('all-segments-store', 'data') # <-- Проверяем, есть ли уже данные
+)
+def manage_initial_view(_, stored_data):
+    # Этот колбэк определит, что показывать пользователю при первой загрузке/обновлении
+    
+    # Если в хранилище браузера уже есть данные...
+    if stored_data and stored_data.get('events_metadata'):
+        print("Обнаружена существующая сессия. Пропускаем модальное окно.")
+        # ...то мы скрываем модальное окно и сразу показываем основной контент.
+        return False, {'display': 'block'}
     else:
-        # Это важный случай: если файла нет (после перезапуска), мы должны сообщить об этом.
-        return None
+        # Если данных нет, то все по-старому:
+        print("Новая сессия. Показываем модальное окно.")
+        # ...показываем модальное окно и скрываем контент.
+        return True, {'display': 'none'}
 
-def clear_geometry_cache():
-    """Очищает папку с файлами кэша."""
-    print("Очистка файлового кэша геометрии...")
-    for item in CACHE_DIR.iterdir():
-        item.unlink() # Удаляем файл
+# Немного изменим layout, чтобы добавить ID для триггера
+app.layout = dbc.Container(
+    [
+        # ... (все dcc.Store) ...
+        modal,
+        dcc.Loading(...)
+    ],
+    fluid=True,
+    id='app-layout' # <-- ДОБАВЛЯЕМ ID
+)
+
+
+# --- ИЗМЕНЯЕМ КОЛБЭК `run_processing_and_init` ---
+# Он больше не должен управлять видимостью контента, это делает новый колбэк
+@app.callback(
+    Output('all-segments-store', 'data'),
+    Output('current-segment-index-store', 'data'),
+    Output('study-date-store', 'data'),
+    # Убираем Output для 'settings-modal' и 'main-content'
+    Input('submit-modal-button', 'n_clicks'),
+    State('date-picker', 'date'),
+    prevent_initial_call=True
+)
+def run_processing_and_init(n_clicks, selected_date):
+    if not selected_date:
+        return no_update, no_update, no_update
+        
+    # ... (весь код вычислений остается без изменений) ...
+    
+    # Просто возвращаем данные для сохранения в dcc.Store
+    return data_to_store, index_to_store, date_to_store
