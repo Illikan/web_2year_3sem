@@ -1,0 +1,21 @@
+def generate_equatorial_poly():
+    """
+    Генерирует координаты для полигона "экваториальный пояс"
+    с правильным порядком обхода вершин (против часовой стрелки).
+    """
+    lat_min, lat_max = -15, 15
+    lon_min, lon_max = -180, 180
+    num_segments = 50 # Достаточное количество для гладкости
+
+    # 1. Движемся по нижней границе слева направо
+    bottom_edge = list(zip(np.linspace(lon_min, lon_max, num_segments), [lat_min] * num_segments))
+
+    # 2. Движемся по верхней границе справа налево
+    top_edge = list(zip(np.linspace(lon_max, lon_min, num_segments), [lat_max] * num_segments))
+
+    # 3. Соединяем их в один контур против часовой стрелки.
+    # [точки нижней границы] + [точки верхней границы в обратном порядке]
+    # Первая и последняя точки будут совпадать, что хорошо для S2Loop.
+    polygon_coords = bottom_edge + top_edge
+    
+    return polygon_coords
