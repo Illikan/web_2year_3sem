@@ -1,0 +1,112 @@
+@app.callback(
+    Output('globe-graph', 'figure'),
+    Output('series-graph', 'figure'),
+    Input('map-data-store', 'data'),
+    Input('current-index-store', 'data'),
+    State('date-picker-store', 'data') # NEW: Нам понадобится дата для запроса данных графика
+)
+def update_graphs(stored_data, current_index_data, date_store_data):
+    # --- Начальная инициализация ---
+    map_fig = go.Figure()
+    series_fig = go.Figure()
+    map_title = "Карта геофизических эффектов"
+    series_title = "Данные временного ряда"
+
+    # Рисуем аномалию всегда
+    anomaly_polygon_coords = data_processing.generate_equatorial_poly()
+    poly_lons, poly_lats = zip(*anomaly_polygon_coords)
+    map_fig.add_trace(go.Scattergeo(
+        lon=poly_lons, lat=poly_lats, mode='lines', fill='toself',
+        fillcolor='rgba(255, 0, 0, 0.3)', name='Зона аномалии', showlegend=False
+    ))
+
+    # --- CHANGED: Новая логика получения данных ---
+    # Проверяем, есть ли вообще какие-то данные
+    if not stored_data or not current_index_data or not date_store_data:
+        # Если данных нет (первый запуск), ничего не обновляем
+        return no_update, no_update
+
+    # Извлекаем метаданные и текущий индекс
+    events_metadata = stored_data.get('events_metadata', [])
+    current_index = current_index_data.get('index', 0)
+    study_date_str = date_store_data.get('date')
+    study_date = datetime.fromisoformat(study_date_str) if study_date_str else None
+
+
+    # --- CHANGED: Проверяем состояние на основе метаданных ---
+    if not events_metadata:
+        map_title = "Не найдено подходящих сегментов"
+    elif current_index >= len(events_metadata):
+        map_title = "Маркировка завершена!"
+        series_fig.update_layout(title="Нет данных для отображения")
+    else:
+        # Получаем МЕТАДАННЫЕ для текущего сегмента
+        event_metadata = events_metadata[current_index]
+        event_id = event_metadata['id']
+        station_id = event_metadata['station_id']
+        satellite_id = event_metadata['satellite_id']
+        map_title = f"Сегмент на проверке: {event_id}"
+
+        # --- NEW: Получаем "тяжелые" данные из серверного кэша ---
+        segment_to_display = get_segment_from_cache(event_id)
+        
+        # Важная проверка: что если данных в кэше нет (например, после перезапуска сервера)?
+        if not segment_to_display:
+            map_title = f"Ошибка: данные для сегмента {event_id} не найдены в кэше."
+            # Возвращаем карту с ошибкой и пустой график
+            map_fig.update_layout(title=map_title, geo=dict(projection_type='orthographic'))
+            series_fig.update_layout(title="Ошибка загрузки данных")
+            return map_fig, series_fig
+            
+        # --- Дальше код почти не меняется, так как `segment_to_display` имеет ту же структуру ---
+        
+        # Отображение станции
+        site = data_processing.get_site_data_by_id(station_id)
+        if site:
+            map_fig.add_trace(go.Scattergeo(
+                lon=[site['lon']], lat=[site['lat']], text=site['id'].upper(), mode='markers+text',
+                marker=dict(color='blue', size=10, symbol='triangle-up'), textposition='top right',
+                name=f"Станция {site['id'].upper()}"
+            ))
+
+        # Отображение траектории
+        points = segment_to_display.get('points', [])
+        lats = [p['lat'] for p in points]
+        lons = [p['lon'] for p in points]
+        map_fig.add_trace(go.Scattergeo(
+            lon=lons, lat=lats, mode='lines',
+            line=dict(width=3, color='purple'), name=event_id
+        ))
+        
+        # Отображение точек пересечения
+        intersections = segment_to_display.get('intersections', [])
+        if intersections:
+            # ... (этот блок кода остается БЕЗ ИЗМЕНЕНИЙ) ...
+            # ... (рисуем точки входа/выхода на карте) ...
+            pass # Оставляю для краткости, код здесь не меняется
+
+        # --- Запрос и отрисовка данных для графика ---
+        # CHANGED: Передаем `study_date` в функцию
+        series_data = data_processing.get_series_data_for_trajectory(
+            study_date=study_date,
+            station_id=station_id, # Берем из метаданных
+            satellite_id=satellite_id, # Берем из метаданных
+            product=data_processing.DataProducts.roti
+        )
+        if series_data:
+            # ... (этот блок кода остается БЕЗ ИЗМЕНЕНИЙ) ...
+            # ... (рисуем график и вертикальные линии) ...
+            pass # Оставляю для краткости, код здесь не меняется
+        else:
+            series_title = f"Нет данных для {event_id}"
+
+    # --- Финальное обновление Layout'ов ---
+    map_fig.update_layout(
+        title=map_title, width=None, height=600,
+        geo=dict(projection_type='orthographic', lonaxis_showgrid=True, lataxis_showgrid=True)
+    )
+    series_fig.update_layout(
+        title=series_title, xaxis_title="Время (UTC)", width=None, height=600
+    )
+    
+    return map_fig, series_fig
