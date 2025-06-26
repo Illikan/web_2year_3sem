@@ -1,56 +1,82 @@
+def manage_session_and_processing(n_clicks, _, selected_date, existing_data):
+    # Получаем ID триггера, чтобы понять, что вызвало колбэк
+    ctx = dash.callback_context
+    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    # --- СЦЕНАРИЙ 1: Загрузка/обновление страницы ---
+    if triggered_id == 'app-layout':
+        # Если данные в хранилище уже есть и они не пустые...
+        if existing_data and existing_data.get('events_metadata'):
+             print("Обнаружена существующая сессия. Показываем контент.")
+             # ... то скрываем модальное окно и показываем контент.
+             # Данные в Store не меняем.
+             return no_update, no_update, no_update, False, {'display': 'block'}
+        else:
+             # Если данных нет, ничего не делаем, окно останется открытым по умолчанию.
+             return no_update, no_update, no_update, True, {'display': 'none'}
+
+    # --- СЦЕНАРИЙ 2: Нажата кнопка "Загрузить" ---
+    if triggered_id == 'submit-modal-button':
+        if not selected_date:
+            # Возвращаем no_update для данных, но управляем окном
+            return no_update, no_update, no_update, True, {'display': 'none'}
+            
+        # ... весь ваш код вычислений из старого run_processing_and_init ...
+        study_date_dt = datetime.strptime(selected_date.split('T')[0], '%Y-%m-%d')
+        all_segments_metadata, study_date_obj = data_processing.get_main_map_data(study_date_dt)
+        # ...
+        
+        data_to_store = {'events_metadata': all_segments_metadata}
+        index_to_store = {'index': 0}
+        date_to_store = {'date': study_date_obj.isoformat()}
+        
+        # После вычислений сохраняем данные, ЗАКРЫВАЕМ окно и ПОКАЗЫВАЕМ контент
+        return data_to_store, index_to_store, date_to_store, False, {'display': 'block'}
+        
+    # На случай других срабатываний
+    return no_update, no_update, no_update, no_update, no_update
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # app.py
 
-# ... (импорты и layout) ...
-
-# --- НОВЫЙ КОЛБЭК ДЛЯ УПРАВЛЕНИЯ МОДАЛЬНЫМ ОКНОМ ---
+# --- ИЗМЕНЯЕМ ВЫХОДЫ КОЛБЭКА ---
+# Теперь он будет управлять не только индексом, но и очищать данные
 @app.callback(
-    Output('settings-modal', 'is_open'),
-    Output('main-content', 'style'),
-    Input('app-layout', 'children'), # <-- Триггер, который срабатывает один раз при загрузке страницы
-    State('all-segments-store', 'data') # <-- Проверяем, есть ли уже данные
-)
-def manage_initial_view(_, stored_data):
-    # Этот колбэк определит, что показывать пользователю при первой загрузке/обновлении
-    
-    # Если в хранилище браузера уже есть данные...
-    if stored_data and stored_data.get('events_metadata'):
-        print("Обнаружена существующая сессия. Пропускаем модальное окно.")
-        # ...то мы скрываем модальное окно и сразу показываем основной контент.
-        return False, {'display': 'block'}
-    else:
-        # Если данных нет, то все по-старому:
-        print("Новая сессия. Показываем модальное окно.")
-        # ...показываем модальное окно и скрываем контент.
-        return True, {'display': 'none'}
-
-# Немного изменим layout, чтобы добавить ID для триггера
-app.layout = dbc.Container(
-    [
-        # ... (все dcc.Store) ...
-        modal,
-        dcc.Loading(...)
-    ],
-    fluid=True,
-    id='app-layout' # <-- ДОБАВЛЯЕМ ID
-)
-
-
-# --- ИЗМЕНЯЕМ КОЛБЭК `run_processing_and_init` ---
-# Он больше не должен управлять видимостью контента, это делает новый колбэк
-@app.callback(
-    Output('all-segments-store', 'data'),
     Output('current-segment-index-store', 'data'),
-    Output('study-date-store', 'data'),
-    # Убираем Output для 'settings-modal' и 'main-content'
-    Input('submit-modal-button', 'n_clicks'),
-    State('date-picker', 'date'),
+    Output('all-segments-store', 'data'), # <-- НОВЫЙ ВЫХОД
+    Input('yes-button', 'n_clicks'),
+    Input('no-button', 'n_clicks'),
+    State('current-segment-index-store', 'data'),
+    State('all-segments-store', 'data'),
     prevent_initial_call=True
 )
-def run_processing_and_init(n_clicks, selected_date):
-    if not selected_date:
-        return no_update, no_update, no_update
-        
-    # ... (весь код вычислений остается без изменений) ...
+def process_annotation(yes_clicks, no_clicks, current_index_data, stored_data):
+    # ... (весь код до конца без изменений) ...
+    # ... (извлекаем current_index, all_segments_metadata, сохраняем в файл) ...
+
+    # --- НОВАЯ ЛОГИКА В КОНЦЕ ФУНКЦИИ ---
+    next_index = current_index + 1
     
-    # Просто возвращаем данные для сохранения в dcc.Store
-    return data_to_store, index_to_store, date_to_store
+    # Если мы только что обработали ПОСЛЕДНИЙ элемент...
+    if next_index >= len(all_segments_metadata):
+        print("Маркировка завершена. Очищаю данные сессии.")
+        # ... то мы возвращаем пустые данные для хранилища сегментов.
+        # И сбрасываем индекс.
+        return {'index': 0}, {'events_metadata': []}
+    else:
+        # Если это не последний элемент, просто обновляем индекс.
+        return {'index': next_index}, no_update
+
+Output('all-segments-store', 'data', allow_duplicate=True),
