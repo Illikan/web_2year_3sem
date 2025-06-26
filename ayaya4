@@ -1,32 +1,36 @@
-sync def fetch_site_data_async(session, site_id: str):
-    """Асинхронно запрашивает данные для ОДНОЙ станции."""
-    if site_id in station_cache:
-        return station_cache[site_id]
-        
-    url = f"https://api.simurg.space/sites/{site_id.lower()}"
+def get_main_map_data(study_date: datetime):
+    # ...
+    # --- Шаг 2: Чтение структуры H5 ---
     try:
-        async with session.get(url) as response:
-            response.raise_for_status()
-            simurg_data = await response.json()
-            station_data = {
-                'id': simurg_data['code'],
-                'lat': simurg_data['location']['lat'],
-                'lon': simurg_data['location']['lon'],
-                'xyz': simurg_data['xyz']
-            }
-            station_cache[site_id] = station_data
-            return station_data
+        h5_file_path = load_h5_data(study_date)
+        if not h5_file_path: raise FileNotFoundError(...)
+        with h5py.File(h5_file_path, 'r') as f:
+            all_stations_in_h5 = list(f.keys())
     except Exception as e:
-        # print(f"Ошибка при запросе {site_id}: {e}")
-        station_cache[site_id] = None
-        return None
+        print(f"Ошибка на этапе чтения H5: {e}")
+        return [], study_date
 
-async def get_all_site_data_concurrently(site_ids: list[str]):
-    """
-    Запускает запросы для всех нужных ID станций параллельно.
-    """
-    async with aiohttp.ClientSession() as session:
-        tasks = [fetch_site_data_async(session, site_id) for site_id in site_ids]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        # Отфильтровываем None и возможные исключения
-        return [res for res in results if res is not None and not isinstance(res, Exception)]
+    # --- ШАГ 2.5: АСИНХРОННАЯ ЗАГРУЗКА ДАННЫХ О СТАНЦИЯХ (НОВЫЙ БЛОК) ---
+    print(f"Найдено станций в H5: {len(all_stations_in_h5)}. Запускаю параллельную загрузку их координат...")
+    # Запускаем асинхронную функцию и ждем ее выполнения
+    all_stations_data = asyncio.run(get_all_site_data_concurrently(all_stations_in_h5))
+    print(f"Координаты загружены для {len(all_stations_data)} станций. Фильтрую по расстоянию...")
+
+    # --- Шаг 3: Фильтрация и подготовка к гео-расчетам ---
+    relevant_station_sat_pairs = []
+    poly_center_latlon = (0, 0)
+    
+    # Теперь мы итерируемся по уже загруженным данным, это происходит мгновенно
+    for site_data in all_stations_data:
+        if is_site_near_polygon(...):
+             # Чтобы получить список спутников, нам все равно придется открыть H5 еще раз
+             # Но это очень быстрая операция
+             with h5py.File(h5_file_path, 'r') as f:
+                 available_sats = list(f.get(site_data['id'], {}).keys())
+
+             relevant_station_sat_pairs.append({
+                 'site_data': site_data,
+                 'sats': available_sats
+             })
+             
+    # ... (остальная часть функции остается почти без изменений) ...
