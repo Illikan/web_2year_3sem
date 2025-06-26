@@ -1,0 +1,73 @@
+@app.callback(
+    # Выход один: мы обновляем всё состояние сессии целиком
+    Output('session-state-store', 'data', allow_duplicate=True),
+    # Входы - только нажатия кнопок
+    Input('yes-button', 'n_clicks'),
+    Input('no-button', 'n_clicks'),
+    # Состояние - нам нужно знать всё о текущей сессии
+    State('session-state-store', 'data'),
+    prevent_initial_call=True
+)
+def process_annotation(yes_clicks, no_clicks, session_state):
+    """
+    Главный "двигатель" приложения. Запускается по кнопкам "Да/Нет".
+    1. Сохраняет разметку для *текущего* сегмента (если он есть).
+    2. Вызывает find_next_valid_segment для поиска *следующего*.
+    3. Обновляет состояние сессии в dcc.Store.
+    """
+    # Если колбэк сработал до инициализации сессии, ничего не делаем
+    if not session_state:
+        return no_update
+
+    ctx = dash.callback_context
+    # Если колбэк сработал не из-за кнопок, выходим
+    if not ctx.triggered or not any([yes_clicks, no_clicks]):
+        return no_update
+        
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    is_effect = (button_id == 'yes-button')
+
+    # --- Шаг 1: Сохранение разметки для предыдущего (текущего на экране) сегмента ---
+    # Проверяем, был ли на экране сегмент для разметки
+    if session_state.get('current_segment_data'):
+        segment_to_annotate = session_state['current_segment_data']
+        
+        # Добавляем результат разметки в метаданные
+        segment_to_annotate['has_effect'] = is_effect
+        
+        # Логика сохранения в файл (остается вашей)
+        output_dir = Path("annotations")
+        output_dir.mkdir(exist_ok=True)
+        date_str = datetime.fromisoformat(session_state['study_date']).strftime('%Y-%m-%d')
+        file_path = output_dir / f"annotations_{date_str}.jsonl" # Используем .jsonl для "JSON-lines"
+        with open(file_path, 'a') as f:
+            f.write(json.dumps(segment_to_annotate) + '\n')
+        print(f"Сегмент {segment_to_annotate['id']} сохранен с is_effect={is_effect}")
+    else:
+        print("Первый запуск, размечать пока нечего. Ищем первый сегмент...")
+
+    # --- Шаг 2: Поиск следующего валидного сегмента ---
+    # Мы передаем в "поисковик" наше текущее состояние конвейера
+    next_segment_metadata, next_station_idx, next_sat_idx = data_processing.find_next_valid_segment(
+        study_date=datetime.fromisoformat(session_state['study_date']),
+        station_list=session_state['station_list'],
+        current_station_idx=session_state['current_station_idx'],
+        current_sat_idx=session_state['current_sat_idx']
+    )
+
+    # --- Шаг 3: Обновление состояния сессии на основе результата поиска ---
+    if next_segment_metadata:
+        # Если НАШЛИ новый сегмент:
+        print(f"Найден следующий сегмент для разметки: {next_segment_metadata['id']}")
+        session_state['current_segment_data'] = next_segment_metadata
+        session_state['current_station_idx'] = next_station_idx
+        session_state['current_sat_idx'] = next_sat_idx
+        session_state['is_finished'] = False
+    else:
+        # Если НЕ НАШЛИ (find_next_valid_segment вернул None):
+        print("Разметка для данной даты завершена.")
+        session_state['is_finished'] = True
+        session_state['current_segment_data'] = None
+    
+    # Возвращаем ОБНОВЛЕННЫЙ СЛОВАРЬ состояния
+    return session_state
