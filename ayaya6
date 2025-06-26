@@ -1,119 +1,41 @@
-# app.py
+def is_site_near_polygon(
+    site_latlon: tuple[float, float],
+    polygon_center_latlon: tuple[float, float],
+    max_distance_km: float = 3000.0  
+) -> bool:
+    """
+    Проверяет, находится ли станция в пределах max_distance_km от центра полигона.
+    Использует расчет по большому кругу (great-circle distance).
+    """
+    site_lat, site_lon = site_latlon
+    center_lat, center_lon = polygon_center_latlon
 
-# ... (layout с id='app-layout') ...
+    # Преобразование градусов в радианы
+    site_lat_rad = math.radians(site_lat)
+    site_lon_rad = math.radians(site_lon)
+    center_lat_rad = math.radians(center_lat)
+    center_lon_rad = math.radians(center_lon)
 
-# --- КОЛБЭК 1: ЗАПУСК НОВОЙ СЕССИИ (по кнопке) ---
-@app.callback(
-    Output('all-segments-store', 'data'),
-    Output('current-segment-index-store', 'data'),
-    Output('study-date-store', 'data'),
-    Input('submit-modal-button', 'n_clicks'),
-    State('date-picker', 'date'),
-    prevent_initial_call=True
-)
-def run_processing_and_init(n_clicks, selected_date):
-    # Эта функция теперь ОЧЕНЬ простая. Она только считает и сохраняет.
-    if not selected_date:
-        return no_update, no_update, no_update
-        
-    study_date_dt = datetime.strptime(selected_date.split('T')[0], '%Y-%m-%d')
-    all_segments_metadata, study_date_obj = data_processing.get_main_map_data(study_date_dt)
-    
-    data_to_store = {'events_metadata': all_segments_metadata}
-    index_to_store = {'index': 0}
-    date_to_store = {'date': study_date_obj.isoformat()}
-    
-    return data_to_store, index_to_store, date_to_store
+    # Преобразование lat/lon в 3D декартовы единичные векторы
+    site_vec = np.array([
+        math.cos(site_lat_rad) * math.cos(site_lon_rad),
+        math.cos(site_lat_rad) * math.sin(site_lon_rad),
+        math.sin(site_lat_rad)
+    ])
+    center_vec = np.array([
+        math.cos(center_lat_rad) * math.cos(center_lon_rad),
+        math.cos(center_lat_rad) * math.sin(center_lon_rad),
+        math.sin(center_lat_rad)
+    ])
 
+    # Вычисление угла между векторами через скалярное произведение
+    dot_product = np.dot(site_vec, center_vec)
+    # Ограничение значения для избежания ошибок с плавающей точкой
+    dot_product = np.clip(dot_product, -1.0, 1.0)
+    angle_rad = math.acos(dot_product)
 
-# --- КОЛБЭК 2: УМНОЕ УПРАВЛЕНИЕ ВИДИМОСТЬЮ И ВОССТАНОВЛЕНИЕ КЭША ---
-@app.callback(
-    Output('settings-modal', 'is_open'),
-    Output('main-content', 'style'),
-    # Этот Output будет триггерить пересчет, если нужно
-    Output('all-segments-store', 'data', allow_duplicate=True), 
-    Input('app-layout', 'children'), # Триггер на загрузку
-    State('all-segments-store', 'data'),
-    State('study-date-store', 'data')
-)
-def manage_initial_view(_, stored_data, date_store_data):
-    # Если нет данных о дате или сегментах, значит, это точно новая сессия.
-    if not stored_data or not date_store_data:
-        return True, {'display': 'none'}, no_update
+    # Расчет расстояния
+    earth_radius_km = RE / 1000.0
+    distance_km = angle_rad * earth_radius_km
 
-    events_metadata = stored_data.get('events_metadata', [])
-    study_date_str = date_store_data.get('date')
-
-    # Если есть метаданные, но они пустые (после завершения разметки) -> новая сессия
-    if not events_metadata:
-        return True, {'display': 'none'}, no_update
-
-    # --- КЛЮЧЕВАЯ ЛОГИКА ---
-    # Проверяем, жив ли наш серверный кэш, взяв ID первого сегмента.
-    first_segment_id = events_metadata[0].get('id')
-    if data_processing.get_segment_from_cache(first_segment_id) is None:
-        # Если кэш пуст (сервер перезапустился)...
-        print("!!! СЕРВЕРНЫЙ КЭШ ПУСТ. ВОССТАНАВЛИВАЮ ГЕОМЕТРИЮ... !!!")
-        
-        # ...мы должны ПЕРЕСЧИТАТЬ ВСЁ ЗАНОВО, чтобы наполнить кэш.
-        study_date_dt = datetime.fromisoformat(study_date_str)
-        # Эта функция заново наполнит файловый кэш.
-        recalculated_metadata, _ = data_processing.get_main_map_data(study_date_dt)
-        
-        # И мы перезаписываем данные в dcc.Store, чтобы обновить интерфейс
-        # Это также закроет окно и покажет контент.
-        return False, {'display': 'block'}, {'events_metadata': recalculated_metadata}
-    else:
-        # Если кэш в порядке (простое обновление F5 без перезапуска сервера)...
-        print("Обнаружена существующая сессия с живым кэшем.")
-        # ...то мы просто скрываем модальное окно и показываем контент.
-        return False, {'display': 'block'}, no_update
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-@app.callback(
-    Output('current-segment-index-store', 'data'),
-    Output('all-segments-store', 'data', allow_duplicate=True), 
-    Input('yes-button', 'n_clicks'),
-    Input('no-button', 'n_clicks'),
-    State('current-segment-index-store', 'data'),
-    State('all-segments-store', 'data'),
-    prevent_initial_call=True
-)
-def process_annotation(yes_clicks, no_clicks, current_index_data, stored_data):
-    # ... (код распаковки и сохранения в файл без изменений) ...
-    
-    # --- Логика в конце функции ---
-    all_segments_metadata = stored_data.get('events_metadata', [])
-    current_index = current_index_data.get('index', 0)
-    next_index = current_index + 1
-    
-    # Если мы только что обработали ПОСЛЕДНИЙ элемент...
-    if next_index >= len(all_segments_metadata):
-        print("Маркировка завершена. Очищаю данные сессии.")
-        # Возвращаем пустые данные для хранилища сегментов и сбрасываем индекс.
-        # Это заставит `manage_initial_view` при следующей загрузке показать модальное окно.
-        return {'index': 0}, {'events_metadata': []}
-    else:
-        # Иначе просто обновляем индекс.
-        return {'index': next_index}, no_update
+    return distance_km <= max_distance_km
