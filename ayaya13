@@ -1,0 +1,16 @@
+@app.callback(
+    Output('settings-modal', 'is_open'),
+    Output('main-content', 'style'),
+    Input('app-layout', 'children'), # Срабатывает при загрузке layout
+    State('session-state-store', 'data')
+)
+def manage_visibility_on_load(_, session_state):
+    # Если сессия уже существует в браузере и не завершена...
+    if session_state and not session_state.get('is_finished', False):
+        print("Обнаружена существующая сессия. Показываем интерфейс разметки.")
+        # ...то мы НЕ открываем модальное окно и показываем основной контент.
+        return False, {'visibility': 'visible'}
+    else:
+        # Иначе (первый запуск или сессия завершена) открываем модальное окно.
+        print("Новая сессия. Показываем модальное окно.")
+        return True, {'visibility': 'hidden'}
