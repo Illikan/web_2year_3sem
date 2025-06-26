@@ -1,173 +1,32 @@
-def get_main_map_data(study_date: datetime):
-    """
-    СУПЕР-ОПТИМИЗИРОВАННАЯ ВЕРСИЯ.
-    1. Читает структуру H5, чтобы узнать, какие данные существуют.
-    2. Фильтрует станции по близости к аномалии.
-    3. Вычисляет геометрию ТОЛЬКО для релевантных пар станция-спутник.
-    """
-    print(f"Начинаю СУПЕР-ОПТИМИЗИРОВАННУЮ обработку за {study_date.date()}")
-    
-    # --- Константы для отладки и фильтрации ---
-    SEGMENT_LIMIT_FOR_DEBUG = 10 
-    DISTANCE_LIMIT_KM = 3000.0 
-
-    # --- Шаг 1: Загрузка H5 файла (без чтения данных в память) ---
+sync def fetch_site_data_async(session, site_id: str):
+    """Асинхронно запрашивает данные для ОДНОЙ станции."""
+    if site_id in station_cache:
+        return station_cache[site_id]
+        
+    url = f"https://api.simurg.space/sites/{site_id.lower()}"
     try:
-        h5_file_path = load_h5_data(study_date)
-        if not h5_file_path:
-            raise FileNotFoundError("Крит. ошибка: не удалось загрузить H5 файл.")
+        async with session.get(url) as response:
+            response.raise_for_status()
+            simurg_data = await response.json()
+            station_data = {
+                'id': simurg_data['code'],
+                'lat': simurg_data['location']['lat'],
+                'lon': simurg_data['location']['lon'],
+                'xyz': simurg_data['xyz']
+            }
+            station_cache[site_id] = station_data
+            return station_data
     except Exception as e:
-        print(f"Ошибка на этапе загрузки H5: {e}")
-        return [], study_date
-
-    # --- Шаг 2: Чтение структуры H5 и фильтрация станций ---
-    print("Чтение структуры H5 файла и фильтрация станций...")
-    relevant_station_sat_pairs = []
-    poly_center_latlon = (0, 0) # Центр для экваториальной аномалии
-
-    with h5py.File(h5_file_path, 'r') as f:
-        all_stations_in_h5 = list(f.keys())
-        print(f"Найдено станций в H5: {len(all_stations_in_h5)}. Фильтрую по расстоянию...")
-
-        for station_id in all_stations_in_h5:
-            site_data = get_site_data_by_id(station_id)
-            if not site_data: continue
-
-            # Фильтруем станции по географической близости
-            if is_site_near_polygon(
-                site_latlon=(site_data['lat'], site_data['lon']),
-                polygon_center_latlon=poly_center_latlon,
-                max_distance_km=DISTANCE_LIMIT_KM
-            ):
-                # Для прошедших фильтр станций, сохраняем список их спутников
-                available_sats = list(f[station_id].keys())
-                relevant_station_sat_pairs.append({
-                    'site_data': site_data,
-                    'sats': available_sats
-                })
-    
-    print(f"После фильтрации осталось {len(relevant_station_sat_pairs)} релевантных станций.")
-    if not relevant_station_sat_pairs:
-        return [], study_date
-
-    # --- Шаг 3: Подготовка к геометрическим расчетам ---
-    try:
-        nav_file = load_nav_file(study_date)
-        if not nav_file: raise FileNotFoundError("Не удалось загрузить NAV файл.")
-        end_time = study_date + timedelta(days=1, seconds=-30)
-        
-        # Собираем УНИКАЛЬНЫЙ список всех спутников, для которых нужно посчитать XYZ
-        all_sats_needed = set()
-        for pair in relevant_station_sat_pairs:
-            all_sats_needed.update(pair['sats'])
-        
-        print(f"Требуется рассчитать XYZ для {len(all_sats_needed)} уникальных спутников.")
-        all_sats_xyz, times = get_sat_xyz(nav_file, study_date, end_time, sats=list(all_sats_needed))
-
-    except Exception as e:
-        print(f"Крит. ошибка при подготовке к гео-расчетам: {e}")
-        return [], study_date
-
-    # --- Шаг 4: Вычисление геометрии ТОЛЬКО для нужных данных ---
-    all_valid_segments = []
-    anomaly_polygon_s2 = s2.S2Polygon(...) # Как и было
-
-    for pair in relevant_station_sat_pairs:
-        if len(all_valid_segments) >= SEGMENT_LIMIT_FOR_DEBUG: break
-        
-        site_data = pair['site_data']
-        print(f"\n--- Обработка станции {site_data['id'].upper()} ---")
-
-        # Создаем словарь XYZ только для спутников этой станции
-        sats_xyz_for_site = {sat: all_sats_xyz[sat] for sat in pair['sats'] if sat in all_sats_xyz}
-        if not sats_xyz_for_site: continue
-        
-        sats_elaz = get_elaz_for_site(site_data['xyz'], sats_xyz_for_site)
-        
-        for sat_id, elaz_data in sats_elaz.items():
-            # ... (вся логика с visible_mask, calculate_sips, split_trajectory_by_gaps, is_segment_valid) ...
-            # ... остается ТОЧНО ТАКОЙ ЖЕ, как была в предыдущей версии ...
-            
-            if is_valid:
-                # ...
-                all_valid_segments.append({
-                    'id': f"{site_data['id']}-{sat_id} ({part_number})",
-                    'station_id': site_data['id'],
-                    'satellite_id': sat_id,
-                    'points': ..., 
-                    'intersections': ...
-                })
-
-    print(f"\nОбработка завершена. Найдено валидных сегментов: {len(all_valid_segments)}")
-    return all_valid_segments, study_date
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def get_series_data(
-    study_date: datetime, 
-    station_id: str, 
-    satellite_id: str,
-    product: DataProducts = DataProducts.roti
-):
-    """
-    ОПТИМИЗИРОВАННАЯ ВЕРСЯ.
-    Читает из HDF5 файла данные ТОЛЬКО для одной запрошенной траектории.
-    """
-    print(f"Ленивый запрос данных для графика: {station_id}-{satellite_id}, продукт: {product.name}")
-    try:
-        # Получаем путь к файлу (он будет взят из кэша, если уже скачан)
-        h5_file = load_h5_data(study_date)
-        if not h5_file:
-            raise FileNotFoundError("HDF5 файл для этой даты не найден.")
-            
-        # Открываем файл для чтения
-        with h5py.File(h5_file, 'r') as f:
-            # Проверяем наличие нужных "папок" (групп) в файле
-            if station_id not in f:
-                raise KeyError(f"Станция {station_id} не найдена в H5 файле.")
-            if satellite_id not in f[station_id]:
-                raise KeyError(f"Спутник {satellite_id} не найден для станции {station_id}.")
-            
-            sat_group = f[station_id][satellite_id]
-            
-            if product.value.hdf_name not in sat_group:
-                raise KeyError(f"Продукт {product.name} не найден для траектории.")
-
-            # --- ВОТ ОНА, МАГИЯ! ---
-            # Читаем ТОЛЬКО нужные нам датасеты
-            timestamps = sat_group[DataProducts.timestamp.value.hdf_name][:]
-            values = sat_group[product.value.hdf_name][:]
-
-        # Обработка и возврат данных
-        times = [datetime.fromtimestamp(t, tz=tz.gettz("UTC")) for t in timestamps]
-        
-        return {
-            'time': [t.isoformat() for t in times],
-            'value': values.tolist(),
-            'product_name': product.value.long_name,
-            'product_units': product.value.color_limits.units
-        }
-
-    except (KeyError, FileNotFoundError) as e:
-        print(f"  -> Ошибка: {e}")
+        # print(f"Ошибка при запросе {site_id}: {e}")
+        station_cache[site_id] = None
         return None
-    except Exception as e:
-        print(f"Произошла непредвиденная ошибка при чтении H5 файла: {e}")
-        return None
+
+async def get_all_site_data_concurrently(site_ids: list[str]):
+    """
+    Запускает запросы для всех нужных ID станций параллельно.
+    """
+    async with aiohttp.ClientSession() as session:
+        tasks = [fetch_site_data_async(session, site_id) for site_id in site_ids]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Отфильтровываем None и возможные исключения
+        return [res for res in results if res is not None and not isinstance(res, Exception)]
