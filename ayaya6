@@ -1,41 +1,76 @@
-def is_site_near_polygon(
+def is_site_near_anomaly_s2(
     site_latlon: tuple[float, float],
-    polygon_center_latlon: tuple[float, float],
-    max_distance_km: float = 3000.0  
+    anomaly_polygon_s2: s2.S2Polygon, # <-- Принимает объект s2.S2Polygon
+    max_distance_km: float = 3000.0
 ) -> bool:
     """
-    Проверяет, находится ли станция в пределах max_distance_km от центра полигона.
-    Использует расчет по большому кругу (great-circle distance).
+    Проверяет, находится ли станция внутри полигона аномалии или на заданном
+    расстоянии от его БЛИЖАЙШЕЙ ГРАНИЦЫ, используя s2geometry.
     """
-    site_lat, site_lon = site_latlon
-    center_lat, center_lon = polygon_center_latlon
+    # Создаем объект S2LatLng для станции
+    site_s2_latlng = s2.S2LatLng.FromDegrees(site_latlon[0], site_latlon[1])
 
-    # Преобразование градусов в радианы
-    site_lat_rad = math.radians(site_lat)
-    site_lon_rad = math.radians(site_lon)
-    center_lat_rad = math.radians(center_lat)
-    center_lon_rad = math.radians(center_lon)
+    # 1. Проверяем, не находится ли станция уже внутри полигона.
+    # Для этого S2LatLng нужно преобразовать в S2Point.
+    if anomaly_polygon_s2.Contains(site_s2_latlng.ToPoint()):
+        return True
 
-    # Преобразование lat/lon в 3D декартовы единичные векторы
-    site_vec = np.array([
-        math.cos(site_lat_rad) * math.cos(site_lon_rad),
-        math.cos(site_lat_rad) * math.sin(site_lon_rad),
-        math.sin(site_lat_rad)
-    ])
-    center_vec = np.array([
-        math.cos(center_lat_rad) * math.cos(center_lon_rad),
-        math.cos(center_lat_rad) * math.sin(center_lon_rad),
-        math.sin(center_lat_rad)
-    ])
+    # 2. Если нет, вычисляем расстояние до полигона.
+    # Метод Project() находит ближайшую точку на полигоне к нашей станции.
+    projected_point_s2 = anomaly_polygon_s2.Project(site_s2_latlng.ToPoint())
+    
+    # Создаем S2LatLng из спроецированной точки
+    projected_latlng = s2.S2LatLng(projected_point_s2)
 
-    # Вычисление угла между векторами через скалярное произведение
-    dot_product = np.dot(site_vec, center_vec)
-    # Ограничение значения для избежания ошибок с плавающей точкой
-    dot_product = np.clip(dot_product, -1.0, 1.0)
-    angle_rad = math.acos(dot_product)
+    # Метод GetDistance() между двумя S2LatLng возвращает расстояние в виде угла S1Angle.
+    s1_angle_distance = site_s2_latlng.GetDistance(projected_latlng)
 
-    # Расчет расстояния
+    # Конвертируем угол в километры
     earth_radius_km = RE / 1000.0
-    distance_km = angle_rad * earth_radius_km
+    distance_in_km = s1_angle_distance.radians() * earth_radius_km
 
-    return distance_km <= max_distance_km
+    return distance_in_km <= max_distance_km
+
+
+
+
+
+
+
+
+
+
+
+# data_processing.py
+
+def get_main_map_data(study_date: datetime):
+    # ... (код до Шага 2) ...
+
+    # --- Шаг 2: Чтение структуры H5 и фильтрация станций ---
+    # ...
+    
+    # --- ИЗМЕНЕНИЕ: Создаем объект S2Polygon ОДИН РАЗ перед циклом ---
+    # Важно: S2Loop ожидает список объектов S2Point.
+    anomaly_s2_loop = s2.S2Loop([
+        s2.S2LatLng.FromDegrees(lat, lon).ToPoint() for lon, lat in generate_equatorial_poly()
+    ])
+    anomaly_polygon_s2 = s2.S2Polygon(anomaly_s2_loop)
+
+    with h5py.File(h5_file_path, 'r') as f:
+        # ...
+
+        for station_id in all_stations_in_h5:
+            site_data = get_site_data_by_id(station_id)
+            if not site_data: continue
+
+            # --- ИЗМЕНЕНИЕ: Вызываем новую функцию фильтрации ---
+            if is_site_near_anomaly_s2(
+                site_latlon=(site_data['lat'], site_data['lon']),
+                anomaly_polygon_s2=anomaly_polygon_s2, # <-- Передаем объект S2Polygon
+                max_distance_km=DISTANCE_LIMIT_KM
+            ):
+                # Логика добавления в relevant_station_sat_pairs остается прежней
+                # ...
+    
+    # ... (остальная часть функции остается без изменений, 
+    # так как anomaly_polygon_s2 уже используется в is_segment_valid) ...
